@@ -1,0 +1,43 @@
+# One-command stack: `docker compose up --build` brings up
+# the FastAPI simulator backend + Next.js dashboard.
+#
+#   Backend → http://localhost:8000  (Swagger at /docs)
+#   Frontend -> http://localhost:3005
+#
+# Both services use the project root as build context so they can
+# share the .dockerignore and pull in src/ (backend) or web/ (frontend).
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: dfc-backend
+    ports:
+      - "8000:8000"
+    environment:
+      PYTHONUNBUFFERED: "1"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      args:
+        # Browser-side requests run from the user's machine, so localhost
+        # is correct here — the JS bundle ships with this URL baked in.
+        # Override at build time for non-localhost deploys.
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
+    container_name: dfc-web
+    ports:
+      - "3005:3005"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

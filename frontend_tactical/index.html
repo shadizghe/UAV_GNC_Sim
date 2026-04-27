@@ -1,0 +1,1259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Tactical Map</title>
+<style>
+  :root {
+    --bg:        #060912;
+    --panel:     #0c1326;
+    --grid:      rgba(0, 212, 255, 0.10);
+    --grid-hi:   rgba(0, 212, 255, 0.22);
+    --cyan:      #00d4ff;
+    --cyan-soft: rgba(0, 212, 255, 0.30);
+    --amber:     #ffc107;
+    --green:     #2ecc71;
+    --pink:      #ff4081;
+    --red:       #ff5252;
+    --violet:    #b388ff;
+    --muted:     #8aa0b8;
+    --text:      #e1e8f0;
+  }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: radial-gradient(circle at 50% 60%, #0c1530 0%, var(--bg) 70%);
+    color: var(--text);
+    font-family: "JetBrains Mono", "Consolas", "Segoe UI", monospace;
+    overflow: hidden; user-select: none;
+  }
+  #wrap { position: relative; width: 100%; height: 100%; }
+  canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+
+  .hud {
+    position: absolute; pointer-events: none;
+    color: var(--muted); font-size: 11px; letter-spacing: 1.5px;
+    text-transform: uppercase;
+    background: rgba(12, 19, 38, 0.78);
+    border: 1px solid rgba(0, 212, 255, 0.25);
+    padding: 6px 10px; border-radius: 3px;
+    backdrop-filter: blur(4px);
+  }
+  .hud b { color: var(--cyan); font-weight: 600; letter-spacing: 0.3px; }
+
+  #title    { top: 10px; left: 10px; }
+  #status   { top: 10px; right: 10px; text-align: right; }
+  #cursor   { bottom: 56px; left: 10px; min-width: 220px; }
+  #legend   { bottom: 56px; right: 10px; text-align: right;}
+  #legend span { display: inline-block; margin-left: 12px; }
+  #legend i {
+    display: inline-block; width: 10px; height: 10px;
+    margin-right: 4px; vertical-align: middle; border-radius: 2px;
+  }
+
+  .toolbar {
+    position: absolute; top: 50px; left: 10px;
+    display: flex; flex-direction: column; gap: 4px;
+    pointer-events: auto;
+  }
+  .toolbar button {
+    background: rgba(12, 19, 38, 0.85);
+    color: var(--cyan); border: 1px solid var(--cyan-soft);
+    padding: 5px 8px; font-family: inherit; font-size: 10px;
+    letter-spacing: 1px; text-transform: uppercase; border-radius: 2px;
+    cursor: pointer; min-width: 86px; text-align: left;
+  }
+  .toolbar button:hover { background: rgba(0, 212, 255, 0.15); }
+  .toolbar button:disabled { color: #4a5775; border-color: #2a3550; cursor: not-allowed; }
+
+  .blink { animation: blink 1.6s linear infinite; }
+  @keyframes blink {
+    0%,100% { opacity: 1; }
+    50%     { opacity: 0.35; }
+  }
+
+  /* ----------- Transport / scrub bar -------------- */
+  #transport {
+    position: absolute; left: 10px; right: 10px; bottom: 10px;
+    height: 36px;
+    background: rgba(12, 19, 38, 0.85);
+    border: 1px solid rgba(0, 212, 255, 0.25);
+    border-radius: 4px;
+    display: flex; align-items: center; gap: 6px; padding: 0 8px;
+    backdrop-filter: blur(4px);
+    pointer-events: auto;
+  }
+  #transport button {
+    background: transparent; color: var(--cyan);
+    border: 1px solid var(--cyan-soft); padding: 3px 6px;
+    font-family: inherit; font-size: 10px; letter-spacing: 1px;
+    text-transform: uppercase; border-radius: 2px; cursor: pointer;
+    min-width: 28px;
+  }
+  #transport button:hover  { background: rgba(0, 212, 255, 0.15); }
+  #transport button.on     { background: rgba(0, 212, 255, 0.25); color: var(--text); }
+
+  #scrubWrap {
+    flex: 1; height: 14px; position: relative; cursor: pointer;
+    background: rgba(0, 212, 255, 0.06); border-radius: 7px;
+    overflow: hidden;
+  }
+  #scrubFill {
+    position: absolute; top: 0; left: 0; bottom: 0; width: 0;
+    background: linear-gradient(90deg, rgba(0,212,255,0.55), rgba(0,212,255,0.85));
+  }
+  #scrubHandle {
+    position: absolute; top: -3px; width: 4px; height: 20px;
+    background: var(--cyan); border-radius: 2px;
+    box-shadow: 0 0 8px rgba(0, 212, 255, 0.7);
+    transform: translateX(-50%); pointer-events: none;
+  }
+  /* tick marks (waypoint reach times etc.) — drawn dynamically as divs */
+  .tick {
+    position: absolute; top: 2px; bottom: 2px; width: 2px;
+    background: rgba(255, 193, 7, 0.7);
+    pointer-events: none;
+  }
+  #tTxt {
+    color: var(--cyan); font-size: 11px; font-weight: 600;
+    min-width: 70px; text-align: right; letter-spacing: 1px;
+  }
+  #spdTxt { color: var(--muted); font-size: 10px; min-width: 28px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="cv"></canvas>
+
+  <div class="hud" id="title">
+    <b>TACTICAL MAP</b> &nbsp;·&nbsp; ENU · WORLD FRAME
+  </div>
+  <div class="hud" id="status">
+    <span id="modeTxt">SCAN</span> · ZOOM <b id="zoomTxt">30</b> px/m
+    <br><span class="blink" style="color:var(--green)">●</span> LIVE
+  </div>
+  <div class="hud" id="cursor">
+    CURSOR &nbsp;<b id="cxTxt">—</b> &nbsp;<b id="cyTxt">—</b>
+    &nbsp;·&nbsp; BRG <b id="brgTxt">—</b>°
+    &nbsp;·&nbsp; RNG <b id="rngTxt">—</b> m
+  </div>
+  <div class="hud" id="legend">
+    <span><i style="background:var(--amber)"></i>WPT</span>
+    <span><i style="background:var(--cyan)"></i>FLOWN</span>
+    <span><i style="background:var(--red)"></i>NO-FLY</span>
+    <span><i style="background:var(--violet)"></i>ZONE</span>
+    <span><i style="background:var(--red)"></i>BANDIT</span>
+  </div>
+
+  <div class="toolbar">
+    <button id="btnFit">⤢ Fit</button>
+    <button id="btnAdd">+ Add WPT</button>
+    <button id="btnDel" disabled>− Del WPT</button>
+    <button id="btnReset">⟲ Reset View</button>
+  </div>
+
+  <div id="transport">
+    <button id="btnPlay"  title="Play / Pause (Space)">▶</button>
+    <button id="btnRwd"   title="Restart">⏮</button>
+    <button id="btnSpd"   title="Cycle speed">1×</button>
+    <span id="spdTxt"></span>
+    <div id="scrubWrap">
+      <div id="scrubFill"></div>
+      <div id="scrubHandle"></div>
+    </div>
+    <span id="tTxt">t = 0.00 s</span>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ====================================================================== */
+/* Streamlit handshake                                                     */
+/* ====================================================================== */
+function send(type, data)        { window.parent.postMessage({ ...data, isStreamlitMessage: true, type }, '*'); }
+function setFrameHeight(h)       { send('streamlit:setFrameHeight', { height: h }); }
+function setComponentValue(v)    { send('streamlit:setComponentValue', { value: v, dataType: 'json' }); }
+
+/* ====================================================================== */
+/* State                                                                   */
+/* ====================================================================== */
+const cv  = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+
+const state = {
+  waypoints: [],          // [[x,y,z], ...] sim ENU
+  flown:     [],          // [[x,y,z], ...]
+  zones:     [],          // {name, cx, cy, radius, z_min, z_max, kind}
+  vehicleFinal: null,     // {x,y,z,yaw}  -- final pose
+  enemies:   [],          // {name,behavior,x,y,z,heading,det_r,leth_r,track,_x0,_y0,_h0}
+  view:      { cx: 2.5, cy: 2.5, zoom: 30 },
+  hover:     -1,          // hovered WAYPOINT index
+  selected:  -1,          // selected WAYPOINT index
+  hoverEnemy:    -1,
+  hoverZone:     -1,
+  dragMode:  null,        // null | 'wp' | 'enemy' | 'zone'
+  dragIndex: -1,
+  panning:   false,
+  panStart:  null,
+  cursorWorld: null,
+  sweep: 0,               // radar sweep angle (rad)
+  // Live playback
+  playback: {
+    timeline:     [],     // (K,) time in seconds
+    vehicleTrack: [],     // (K,) of {x,y,z,yaw}
+    playhead:     0,      // current sample index (int)
+    playing:      false,
+    speed:        1.0,    // playback speed multiplier
+    lastWall:     0,      // ms timestamp of previous frame
+    flashUntilK:  -1,     // sample index until which intercept flash plays
+    lastInterceptK: -1,
+  },
+};
+
+// Per-frame current pose (overridden by playback when active).
+let curVehicle = null;     // {x,y,z,yaw}
+let curEnemies = [];       // [{x,y,heading}, ...]
+let curFlownN  = 0;        // how many flown points to draw (== playhead+1)
+
+let lastSerialized = '';
+let initialized = false;
+let initialWaypoints = null;
+
+const MIN_ZOOM = 6, MAX_ZOOM = 200;
+
+/* ====================================================================== */
+/* World <-> screen                                                        */
+/* ====================================================================== */
+function w2s(wx, wy) {
+  return {
+    x: cv.width  / 2 + (wx - state.view.cx) * state.view.zoom,
+    y: cv.height / 2 - (wy - state.view.cy) * state.view.zoom,  // flip y (north up)
+  };
+}
+function s2w(sx, sy) {
+  return {
+    x: state.view.cx + (sx - cv.width  / 2) / state.view.zoom,
+    y: state.view.cy - (sy - cv.height / 2) / state.view.zoom,
+  };
+}
+
+/* ====================================================================== */
+/* Resize / DPR                                                            */
+/* ====================================================================== */
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = document.body.clientWidth, h = document.body.clientHeight;
+  cv.width  = Math.floor(w * dpr);
+  cv.height = Math.floor(h * dpr);
+  cv.style.width  = w + 'px';
+  cv.style.height = h + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', resize);
+
+/* ====================================================================== */
+/* Fit-to-content                                                          */
+/* ====================================================================== */
+function fitView() {
+  const pts = [];
+  state.waypoints.forEach(w => pts.push([w[0], w[1]]));
+  state.flown.forEach(f => pts.push([f[0], f[1]]));
+  state.zones.forEach(z => {
+    pts.push([z.cx + z.radius, z.cy + z.radius]);
+    pts.push([z.cx - z.radius, z.cy - z.radius]);
+  });
+  state.enemies.forEach(e => {
+    pts.push([e.x + e.det_r, e.y + e.det_r]);
+    pts.push([e.x - e.det_r, e.y - e.det_r]);
+  });
+  if (!pts.length) return;
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  pts.forEach(p => {
+    if (p[0] < xmin) xmin = p[0];
+    if (p[0] > xmax) xmax = p[0];
+    if (p[1] < ymin) ymin = p[1];
+    if (p[1] > ymax) ymax = p[1];
+  });
+  const pad = 1.5;
+  xmin -= pad; xmax += pad; ymin -= pad; ymax += pad;
+  const w = document.body.clientWidth, h = document.body.clientHeight;
+  const zx = (w - 60) / Math.max(0.1, xmax - xmin);
+  const zy = (h - 60) / Math.max(0.1, ymax - ymin);
+  state.view.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(zx, zy)));
+  state.view.cx = (xmin + xmax) / 2;
+  state.view.cy = (ymin + ymax) / 2;
+}
+
+/* ====================================================================== */
+/* Drawing                                                                 */
+/* ====================================================================== */
+function drawGrid() {
+  const w = cv.width / (window.devicePixelRatio || 1);
+  const h = cv.height / (window.devicePixelRatio || 1);
+
+  // pick a step that gives ~10 grid lines on screen
+  const span = Math.max(w, h) / state.view.zoom;
+  const stepCandidates = [0.5, 1, 2, 5, 10, 20, 50, 100];
+  let step = stepCandidates[stepCandidates.length - 1];
+  for (const s of stepCandidates) { if (span / s <= 16) { step = s; break; } }
+
+  const xMinW = state.view.cx - w / 2 / state.view.zoom;
+  const xMaxW = state.view.cx + w / 2 / state.view.zoom;
+  const yMinW = state.view.cy - h / 2 / state.view.zoom;
+  const yMaxW = state.view.cy + h / 2 / state.view.zoom;
+
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(0, 212, 255, 0.06)';
+  ctx.beginPath();
+  for (let x = Math.floor(xMinW / step) * step; x <= xMaxW; x += step) {
+    const sx = w2s(x, 0).x;
+    ctx.moveTo(sx, 0); ctx.lineTo(sx, h);
+  }
+  for (let y = Math.floor(yMinW / step) * step; y <= yMaxW; y += step) {
+    const sy = w2s(0, y).y;
+    ctx.moveTo(0, sy); ctx.lineTo(w, sy);
+  }
+  ctx.stroke();
+
+  // axes through origin
+  ctx.strokeStyle = 'rgba(0, 212, 255, 0.25)';
+  ctx.beginPath();
+  const o = w2s(0, 0);
+  ctx.moveTo(0, o.y); ctx.lineTo(w, o.y);
+  ctx.moveTo(o.x, 0); ctx.lineTo(o.x, h);
+  ctx.stroke();
+}
+
+function drawRangeRings() {
+  const o = w2s(0, 0);
+  const radii = [1, 2.5, 5, 10, 20, 50];
+  ctx.strokeStyle = 'rgba(0, 212, 255, 0.18)';
+  ctx.fillStyle   = 'rgba(0, 212, 255, 0.55)';
+  ctx.font = '10px JetBrains Mono, Consolas, monospace';
+  ctx.setLineDash([2, 4]);
+  for (const r of radii) {
+    const rp = r * state.view.zoom;
+    if (rp < 30) continue;
+    ctx.beginPath(); ctx.arc(o.x, o.y, rp, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillText(r + 'm', o.x + rp * Math.cos(-Math.PI / 4) + 4,
+                          o.y + rp * Math.sin(-Math.PI / 4) - 4);
+  }
+  ctx.setLineDash([]);
+}
+
+function drawBearingSpokes() {
+  const o = w2s(0, 0);
+  const w = cv.width / (window.devicePixelRatio || 1);
+  const h = cv.height / (window.devicePixelRatio || 1);
+  const R = Math.hypot(w, h);
+  ctx.strokeStyle = 'rgba(0, 212, 255, 0.06)';
+  ctx.beginPath();
+  for (let deg = 0; deg < 360; deg += 30) {
+    const a = (deg - 90) * Math.PI / 180; // 0° at north
+    ctx.moveTo(o.x, o.y);
+    ctx.lineTo(o.x + R * Math.cos(a), o.y + R * Math.sin(a));
+  }
+  ctx.stroke();
+}
+
+function drawRadarSweep() {
+  const o = w2s(0, 0);
+  const w = cv.width / (window.devicePixelRatio || 1);
+  const h = cv.height / (window.devicePixelRatio || 1);
+  const R = Math.hypot(w, h);
+  const a0 = state.sweep - 0.6;
+  const a1 = state.sweep;
+  const grad = ctx.createRadialGradient(o.x, o.y, 0, o.x, o.y, R);
+  grad.addColorStop(0,   'rgba(0, 212, 255, 0.18)');
+  grad.addColorStop(0.6, 'rgba(0, 212, 255, 0.06)');
+  grad.addColorStop(1,   'rgba(0, 212, 255, 0.0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(o.x, o.y);
+  ctx.arc(o.x, o.y, R, a0, a1);
+  ctx.closePath();
+  ctx.fill();
+  // leading edge line
+  ctx.strokeStyle = 'rgba(0, 212, 255, 0.55)';
+  ctx.beginPath();
+  ctx.moveTo(o.x, o.y);
+  ctx.lineTo(o.x + R * Math.cos(a1), o.y + R * Math.sin(a1));
+  ctx.stroke();
+}
+
+function drawZones() {
+  for (let zi = 0; zi < state.zones.length; zi++) {
+    const z = state.zones[zi];
+    const c = w2s(z.cx, z.cy);
+    const rp = z.radius * state.view.zoom;
+    const isThreat = (z.kind === 'threat');
+    const baseColor = isThreat ? '255,193,7' : '255,82,82';
+    const grad = ctx.createRadialGradient(c.x, c.y, rp * 0.1, c.x, c.y, rp);
+    grad.addColorStop(0,   `rgba(${baseColor},0.05)`);
+    grad.addColorStop(0.7, `rgba(${baseColor},0.18)`);
+    grad.addColorStop(1,   `rgba(${baseColor},0.40)`);
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(c.x, c.y, rp, 0, Math.PI * 2); ctx.fill();
+
+    // hover / drag halo
+    const isActive = (state.hoverZone === zi)
+                  || (state.dragMode === 'zone' && state.dragIndex === zi);
+    if (isActive) {
+      ctx.strokeStyle = `rgba(${baseColor},1)`;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(c.x, c.y, rp + 2, 0, Math.PI * 2); ctx.stroke();
+    }
+
+    // outer ring (dashed for threats)
+    ctx.strokeStyle = `rgba(${baseColor},0.85)`;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash(isThreat ? [6, 4] : []);
+    ctx.beginPath(); ctx.arc(c.x, c.y, rp, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // crosshair
+    ctx.strokeStyle = `rgba(${baseColor},0.7)`;
+    ctx.beginPath();
+    ctx.moveTo(c.x - 6, c.y); ctx.lineTo(c.x + 6, c.y);
+    ctx.moveTo(c.x, c.y - 6); ctx.lineTo(c.x, c.y + 6);
+    ctx.stroke();
+
+    // label
+    ctx.fillStyle = `rgba(${baseColor},1.0)`;
+    ctx.font = 'bold 10px JetBrains Mono, Consolas, monospace';
+    ctx.fillText(z.name, c.x + 8, c.y - 8);
+    ctx.fillStyle = 'rgba(180, 200, 230, 0.6)';
+    ctx.font = '9px JetBrains Mono, Consolas, monospace';
+    ctx.fillText(`R=${z.radius.toFixed(1)}m`, c.x + 8, c.y + 4);
+  }
+}
+
+function drawPlannedPath() {
+  if (state.waypoints.length < 2) return;
+  ctx.strokeStyle = 'rgba(255, 193, 7, 0.85)';
+  ctx.lineWidth = 1.6;
+  ctx.setLineDash([5, 5]);
+  ctx.beginPath();
+  state.waypoints.forEach((wp, i) => {
+    const p = w2s(wp[0], wp[1]);
+    if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+  });
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // bearing/range labels per leg
+  ctx.font = '9px JetBrains Mono, Consolas, monospace';
+  for (let i = 1; i < state.waypoints.length; i++) {
+    const a = state.waypoints[i - 1], b = state.waypoints[i];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const rng = Math.hypot(dx, dy);
+    if (rng < 0.1) continue;
+    const brg = ((Math.atan2(dx, dy) * 180 / Math.PI) + 360) % 360;
+    const m = w2s((a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+    const txt = `${brg.toFixed(0).padStart(3, '0')}° / ${rng.toFixed(1)}m`;
+    const w = ctx.measureText(txt).width + 8;
+    ctx.fillStyle = 'rgba(12,19,38,0.85)';
+    ctx.fillRect(m.x - w / 2, m.y - 7, w, 12);
+    ctx.fillStyle = 'rgba(255,193,7,0.95)';
+    ctx.fillText(txt, m.x - w / 2 + 4, m.y + 2);
+  }
+}
+
+function drawFlownPath() {
+  const n = Math.min(curFlownN, state.flown.length);
+  if (n < 2) return;
+  ctx.lineWidth = 2.0;
+  ctx.strokeStyle = 'rgba(0, 212, 255, 0.85)';
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const sp = w2s(state.flown[i][0], state.flown[i][1]);
+    if (i === 0) ctx.moveTo(sp.x, sp.y); else ctx.lineTo(sp.x, sp.y);
+  }
+  ctx.stroke();
+
+  // soft glow head
+  const last = state.flown[n - 1];
+  const sp = w2s(last[0], last[1]);
+  const grad = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, 14);
+  grad.addColorStop(0, 'rgba(0, 212, 255, 0.55)');
+  grad.addColorStop(1, 'rgba(0, 212, 255, 0.0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.arc(sp.x, sp.y, 14, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawWaypoints() {
+  state.waypoints.forEach((wp, i) => {
+    const p = w2s(wp[0], wp[1]);
+    const isHover = (i === state.hover);
+    const isSel   = (i === state.selected);
+    const r = isSel ? 11 : isHover ? 9 : 7;
+
+    // outer halo
+    if (isSel || isHover) {
+      ctx.strokeStyle = isSel ? 'rgba(0,212,255,0.95)' : 'rgba(255,193,7,0.7)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r + 6, 0, Math.PI * 2); ctx.stroke();
+    }
+
+    // diamond
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y - r);
+    ctx.lineTo(p.x + r, p.y);
+    ctx.lineTo(p.x, p.y + r);
+    ctx.lineTo(p.x - r, p.y);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(p.x - r, p.y - r, p.x + r, p.y + r);
+    grad.addColorStop(0, '#ffd54a');
+    grad.addColorStop(1, '#c08400');
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.strokeStyle = '#0a0e1a';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // label
+    ctx.fillStyle = '#ffc107';
+    ctx.font = 'bold 11px JetBrains Mono, Consolas, monospace';
+    ctx.fillText(`WPT-${i + 1}`, p.x + r + 4, p.y - 4);
+    ctx.fillStyle = 'rgba(180,200,230,0.55)';
+    ctx.font = '9px JetBrains Mono, Consolas, monospace';
+    ctx.fillText(`z=${wp[2].toFixed(1)}m`, p.x + r + 4, p.y + 8);
+  });
+}
+
+function drawEnemies() {
+  if (!state.enemies.length) return;
+  const pulse = 0.5 + 0.5 * Math.sin(state.sweep * 2.5);
+  const upTo  = Math.max(1, curFlownN);
+
+  // enemy tracks (historical path, truncated to playhead)
+  ctx.lineWidth = 1.2;
+  ctx.strokeStyle = 'rgba(255, 82, 82, 0.35)';
+  ctx.setLineDash([3, 3]);
+  for (const e of state.enemies) {
+    if (!e.track || e.track.length < 2) continue;
+    const m = Math.min(upTo, e.track.length);
+    ctx.beginPath();
+    for (let i = 0; i < m; i++) {
+      const sp = w2s(e.track[i][0], e.track[i][1]);
+      if (i === 0) ctx.moveTo(sp.x, sp.y); else ctx.lineTo(sp.x, sp.y);
+    }
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  for (let ei = 0; ei < state.enemies.length; ei++) {
+    const e = state.enemies[ei];
+    // current pose: from playback if available, else stored final
+    const cur = curEnemies[ei] || { x: e.x, y: e.y, heading: e.heading };
+    const p = w2s(cur.x, cur.y);
+
+    // detection ring (dashed) — radial gradient fill, pulsing outline
+    const detR = e.det_r * state.view.zoom;
+    if (detR > 2) {
+      const grad = ctx.createRadialGradient(p.x, p.y, detR * 0.3, p.x, p.y, detR);
+      grad.addColorStop(0,   'rgba(255, 82, 82, 0.00)');
+      grad.addColorStop(0.7, 'rgba(255, 82, 82, 0.08)');
+      grad.addColorStop(1,   'rgba(255, 82, 82, 0.22)');
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(p.x, p.y, detR, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = `rgba(255, 82, 82, ${0.5 + 0.4 * pulse})`;
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath(); ctx.arc(p.x, p.y, detR, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // lethal ring (solid)
+    const lethR = e.leth_r * state.view.zoom;
+    if (lethR > 2) {
+      ctx.strokeStyle = 'rgba(255, 82, 82, 0.95)';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.arc(p.x, p.y, lethR, 0, Math.PI * 2); ctx.stroke();
+    }
+
+    // hover halo
+    if (state.hoverEnemy === ei || (state.dragMode === 'enemy' && state.dragIndex === ei)) {
+      ctx.strokeStyle = 'rgba(255,82,82,0.85)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 18, 0, Math.PI * 2); ctx.stroke();
+    }
+
+    // enemy triangle
+    const a = -cur.heading - Math.PI / 2;
+    const r = 11;
+    ctx.save();
+    ctx.translate(p.x, p.y); ctx.rotate(a);
+    ctx.beginPath();
+    ctx.moveTo(r, 0);
+    ctx.lineTo(-r * 0.7, r * 0.8);
+    ctx.lineTo(-r * 0.35, 0);
+    ctx.lineTo(-r * 0.7, -r * 0.8);
+    ctx.closePath();
+    const grad2 = ctx.createLinearGradient(-r, -r, r, r);
+    grad2.addColorStop(0, '#ff8080');
+    grad2.addColorStop(1, '#aa1010');
+    ctx.fillStyle = grad2;
+    ctx.strokeStyle = '#0a0e1a';
+    ctx.lineWidth = 1.5;
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+
+    // label + behaviour
+    ctx.fillStyle = '#ff8080';
+    ctx.font = 'bold 10px JetBrains Mono, Consolas, monospace';
+    ctx.fillText(e.name, p.x + 14, p.y - 6);
+    ctx.fillStyle = 'rgba(200, 140, 140, 0.8)';
+    ctx.font = '9px JetBrains Mono, Consolas, monospace';
+    ctx.fillText(
+      `${(e.behavior || '').toUpperCase()} · z=${e.z.toFixed(1)}m`,
+      p.x + 14, p.y + 6
+    );
+  }
+
+  // threat vector: from ownship to closest enemy (if within detection)
+  if (curVehicle) {
+    let closest = null, dmin = Infinity, ci = -1;
+    for (let ei = 0; ei < curEnemies.length; ei++) {
+      const ec = curEnemies[ei];
+      const d = Math.hypot(ec.x - curVehicle.x, ec.y - curVehicle.y);
+      if (d < dmin) { dmin = d; closest = state.enemies[ei]; ci = ei; }
+    }
+    if (closest && dmin < closest.det_r) {
+      const cx = curEnemies[ci].x, cy = curEnemies[ci].y;
+      const a = w2s(curVehicle.x, curVehicle.y);
+      const b = w2s(cx, cy);
+      ctx.strokeStyle = `rgba(255, 82, 82, ${0.55 + 0.35 * pulse})`;
+      ctx.lineWidth = 1.4;
+      ctx.setLineDash([7, 4]);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      ctx.setLineDash([]);
+      // range label midpoint
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      const txt = `↯ ${dmin.toFixed(2)} m`;
+      const w = ctx.measureText(txt).width + 10;
+      ctx.fillStyle = 'rgba(12,19,38,0.85)';
+      ctx.fillRect(mx - w / 2, my - 8, w, 14);
+      ctx.fillStyle = '#ff8080';
+      ctx.font = 'bold 10px JetBrains Mono, Consolas, monospace';
+      ctx.fillText(txt, mx - w / 2 + 5, my + 3);
+
+      // Intercept flash: when ownship inside lethal radius, draw expanding ring
+      if (dmin < closest.leth_r) {
+        const k = state.playback.playhead;
+        if (state.playback.lastInterceptK !== k) {
+          state.playback.lastInterceptK = k;
+          state.playback.flashUntilK = k + 8;
+        }
+      }
+    }
+  }
+}
+
+function drawVehicle() {
+  if (!curVehicle) return;
+  const p = w2s(curVehicle.x, curVehicle.y);
+  const yaw = curVehicle.yaw || 0;
+  const a = -yaw - Math.PI / 2; // 0 yaw -> point north (up)
+  const r = 12;
+
+  // Threat status: red halo if inside any detection radius, scale with proximity
+  let dangerW = 0;
+  for (let i = 0; i < curEnemies.length; i++) {
+    const e = state.enemies[i], ec = curEnemies[i];
+    const d = Math.hypot(ec.x - curVehicle.x, ec.y - curVehicle.y);
+    if (d < e.det_r) {
+      const w = (e.det_r - d) / e.det_r;
+      if (w > dangerW) dangerW = w;
+    }
+  }
+  const haloColor = dangerW > 0
+    ? `rgba(255, ${82 + 60 * (1 - dangerW)}, ${82 + 60 * (1 - dangerW)}, ${0.45 + 0.45 * dangerW})`
+    : 'rgba(0, 212, 255, 0.6)';
+  const haloR = 30 + (dangerW > 0 ? 10 * (0.5 + 0.5 * Math.sin(state.sweep * 4)) : 0);
+
+  const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, haloR);
+  grad.addColorStop(0, haloColor);
+  grad.addColorStop(1, 'rgba(0, 212, 255, 0.0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.arc(p.x, p.y, haloR, 0, Math.PI * 2); ctx.fill();
+
+  // Intercept flash: brief expanding ring
+  const k = state.playback.playhead;
+  if (state.playback.flashUntilK > k) {
+    const age = state.playback.flashUntilK - k;
+    const radius = 14 + (8 - age) * 8;
+    const alpha  = age / 8;
+    ctx.strokeStyle = `rgba(255, 82, 82, ${alpha})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(p.x, p.y, radius, 0, Math.PI * 2); ctx.stroke();
+  }
+
+  // triangle
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(a);
+  ctx.beginPath();
+  ctx.moveTo(r, 0);
+  ctx.lineTo(-r * 0.6, r * 0.7);
+  ctx.lineTo(-r * 0.3, 0);
+  ctx.lineTo(-r * 0.6, -r * 0.7);
+  ctx.closePath();
+  ctx.fillStyle = dangerW > 0.6 ? '#ff8080' : '#00d4ff';
+  ctx.strokeStyle = '#0a0e1a';
+  ctx.lineWidth = 1.5;
+  ctx.fill(); ctx.stroke();
+  ctx.restore();
+
+  // altitude readout
+  ctx.fillStyle = '#00d4ff';
+  ctx.font = 'bold 10px JetBrains Mono, Consolas, monospace';
+  ctx.fillText(`ALT ${curVehicle.z.toFixed(2)} m`, p.x + 16, p.y + 18);
+}
+
+function drawCompass() {
+  const w = cv.width / (window.devicePixelRatio || 1);
+  const cx = w - 60, cy = 95, R = 32;
+  ctx.strokeStyle = 'rgba(0, 212, 255, 0.6)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, R - 4, 0, Math.PI * 2); ctx.stroke();
+  // tick marks every 30°
+  for (let deg = 0; deg < 360; deg += 30) {
+    const a = (deg - 90) * Math.PI / 180;
+    const x1 = cx + (R - 4) * Math.cos(a);
+    const y1 = cy + (R - 4) * Math.sin(a);
+    const x2 = cx + R * Math.cos(a);
+    const y2 = cy + R * Math.sin(a);
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+  // cardinal letters
+  ctx.fillStyle = '#00d4ff';
+  ctx.font = 'bold 10px JetBrains Mono, Consolas, monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('N', cx, cy - R + 8);
+  ctx.fillText('S', cx, cy + R - 8);
+  ctx.fillText('E', cx + R - 8, cy);
+  ctx.fillText('W', cx - R + 8, cy);
+  // north arrow
+  ctx.fillStyle = '#ff4081';
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - R + 12);
+  ctx.lineTo(cx - 4, cy);
+  ctx.lineTo(cx + 4, cy);
+  ctx.closePath(); ctx.fill();
+  ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+}
+
+function drawScaleBar() {
+  const h = cv.height / (window.devicePixelRatio || 1);
+  // pick a "nice" world distance for the bar
+  const targets = [50, 20, 10, 5, 2, 1, 0.5];
+  let dist = 1;
+  for (const t of targets) {
+    if (t * state.view.zoom < 200) { dist = t; break; }
+  }
+  const w = dist * state.view.zoom;
+  const x0 = 15, y0 = h - 60;
+  ctx.strokeStyle = '#00d4ff';
+  ctx.fillStyle   = '#00d4ff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x0, y0); ctx.lineTo(x0 + w, y0);
+  ctx.moveTo(x0, y0 - 4); ctx.lineTo(x0, y0 + 4);
+  ctx.moveTo(x0 + w, y0 - 4); ctx.lineTo(x0 + w, y0 + 4);
+  ctx.stroke();
+  ctx.font = 'bold 10px JetBrains Mono, Consolas, monospace';
+  ctx.fillText(dist + ' m', x0 + w + 6, y0 + 4);
+}
+
+function drawCursor() {
+  if (!state.cursorWorld) return;
+  const p = w2s(state.cursorWorld.x, state.cursorWorld.y);
+  ctx.strokeStyle = 'rgba(0, 212, 255, 0.35)';
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  const w = cv.width / (window.devicePixelRatio || 1);
+  const h = cv.height / (window.devicePixelRatio || 1);
+  ctx.moveTo(0, p.y); ctx.lineTo(w, p.y);
+  ctx.moveTo(p.x, 0); ctx.lineTo(p.x, h);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+/* ====================================================================== */
+/* HUD updates                                                             */
+/* ====================================================================== */
+function updateHud() {
+  document.getElementById('zoomTxt').textContent = state.view.zoom.toFixed(0);
+  document.getElementById('modeTxt').textContent =
+    state.dragMode === 'wp'    ? 'DRAG WPT'
+    : state.dragMode === 'enemy' ? 'DRAG BANDIT'
+    : state.dragMode === 'zone'  ? 'DRAG ZONE'
+    : state.panning              ? 'PAN'
+    : state.playback.playing     ? 'PLAY'
+    : state.selected >= 0        ? `WPT-${state.selected + 1}`
+    : 'SCAN';
+
+  if (state.cursorWorld) {
+    document.getElementById('cxTxt').textContent = state.cursorWorld.x.toFixed(2);
+    document.getElementById('cyTxt').textContent = state.cursorWorld.y.toFixed(2);
+    const rng = Math.hypot(state.cursorWorld.x, state.cursorWorld.y);
+    const brg = ((Math.atan2(state.cursorWorld.x, state.cursorWorld.y) * 180 / Math.PI) + 360) % 360;
+    document.getElementById('brgTxt').textContent = brg.toFixed(0).padStart(3, '0');
+    document.getElementById('rngTxt').textContent = rng.toFixed(2);
+  } else {
+    document.getElementById('cxTxt').textContent = '—';
+    document.getElementById('cyTxt').textContent = '—';
+    document.getElementById('brgTxt').textContent = '—';
+    document.getElementById('rngTxt').textContent = '—';
+  }
+  document.getElementById('btnDel').disabled = (state.selected < 0);
+
+  // Transport bar
+  const pb = state.playback;
+  const N = pb.timeline.length;
+  if (N > 0) {
+    const k = Math.max(0, Math.min(N - 1, pb.playhead));
+    document.getElementById('tTxt').textContent =
+      't = ' + pb.timeline[k].toFixed(2) + ' s';
+    const frac = (N <= 1) ? 1 : k / (N - 1);
+    document.getElementById('scrubFill').style.width = (frac * 100) + '%';
+    document.getElementById('scrubHandle').style.left = (frac * 100) + '%';
+  } else {
+    document.getElementById('tTxt').textContent = 't = — s';
+    document.getElementById('scrubFill').style.width = '0%';
+    document.getElementById('scrubHandle').style.left = '0%';
+  }
+  document.getElementById('btnPlay').textContent = pb.playing ? '❚❚' : '▶';
+  document.getElementById('btnPlay').classList.toggle('on', pb.playing);
+  document.getElementById('btnSpd').textContent =
+    pb.speed >= 1 ? pb.speed.toFixed(0) + '×' : pb.speed.toFixed(1) + '×';
+}
+
+/* ====================================================================== */
+/* Playback engine — advance playhead, refresh curVehicle/curEnemies        */
+/* ====================================================================== */
+function advancePlayhead(nowMs) {
+  const pb = state.playback;
+  const N = pb.timeline.length;
+  if (N === 0) return;
+
+  if (pb.playing && pb.lastWall > 0) {
+    const dtWall = (nowMs - pb.lastWall) / 1000.0;
+    // playhead advances proportionally to real time × speed, mapped onto
+    // the index axis (uniform sampling assumption).
+    const totalT = pb.timeline[N - 1] - pb.timeline[0];
+    if (totalT > 0) {
+      const dtSim = dtWall * pb.speed;
+      const dIdx = dtSim * (N - 1) / totalT;
+      pb.playhead += dIdx;
+      if (pb.playhead >= N - 1) {
+        pb.playhead = N - 1;
+        pb.playing = false;       // auto-pause at end
+      }
+    }
+  }
+  pb.lastWall = nowMs;
+}
+
+function refreshCurrentPoses() {
+  const pb = state.playback;
+  const N  = pb.timeline.length;
+  if (N === 0) {
+    // No playback data: fall back to final pose.
+    curVehicle = state.vehicleFinal;
+    curEnemies = state.enemies.map(e => ({ x: e.x, y: e.y, heading: e.heading }));
+    curFlownN  = state.flown.length;
+    return;
+  }
+  const ki = Math.max(0, Math.min(N - 1, Math.floor(pb.playhead)));
+  curFlownN = ki + 1;
+  const v = pb.vehicleTrack[ki];
+  curVehicle = v ? { x: v.x, y: v.y, z: v.z, yaw: v.yaw } : state.vehicleFinal;
+
+  curEnemies = state.enemies.map(e => {
+    if (e.track && e.track.length > ki) {
+      const t = e.track[ki];
+      return { x: t[0], y: t[1], heading: (t.length > 2 ? t[2] : e.heading) };
+    }
+    return { x: e.x, y: e.y, heading: e.heading };
+  });
+}
+
+/* ====================================================================== */
+/* Frame                                                                   */
+/* ====================================================================== */
+function frame(nowMs) {
+  requestAnimationFrame(frame);
+  state.sweep = (state.sweep + 0.012) % (Math.PI * 2);
+
+  advancePlayhead(nowMs || performance.now());
+  refreshCurrentPoses();
+
+  ctx.fillStyle = '#060912';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+
+  drawGrid();
+  drawBearingSpokes();
+  drawRangeRings();
+  drawRadarSweep();
+  drawZones();
+  drawPlannedPath();
+  drawFlownPath();
+  drawCursor();
+  drawEnemies();
+  drawWaypoints();
+  drawVehicle();
+  drawCompass();
+  drawScaleBar();
+
+  updateHud();
+}
+
+/* ====================================================================== */
+/* Hit testing                                                             */
+/* ====================================================================== */
+function hitTestWaypoint(sx, sy) {
+  for (let i = state.waypoints.length - 1; i >= 0; i--) {
+    const wp = state.waypoints[i];
+    const p = w2s(wp[0], wp[1]);
+    if (Math.hypot(sx - p.x, sy - p.y) <= 12) return i;
+  }
+  return -1;
+}
+function hitTestEnemy(sx, sy) {
+  for (let i = state.enemies.length - 1; i >= 0; i--) {
+    const cur = curEnemies[i] || state.enemies[i];
+    const p = w2s(cur.x, cur.y);
+    if (Math.hypot(sx - p.x, sy - p.y) <= 14) return i;
+  }
+  return -1;
+}
+function hitTestZone(sx, sy) {
+  // Hit if cursor is near the zone CENTRE within a small marker tolerance,
+  // OR within ~6px of the ring edge (so users can grab the ring to drag).
+  for (let i = state.zones.length - 1; i >= 0; i--) {
+    const z = state.zones[i];
+    const c = w2s(z.cx, z.cy);
+    const d = Math.hypot(sx - c.x, sy - c.y);
+    const rp = z.radius * state.view.zoom;
+    if (d <= 12)         return i;       // grabbed centre
+    if (Math.abs(d - rp) <= 6) return i; // grabbed edge ring
+  }
+  return -1;
+}
+
+/* ====================================================================== */
+/* Mouse interactions                                                      */
+/* ====================================================================== */
+function getMouse(ev) {
+  const r = cv.getBoundingClientRect();
+  return { sx: ev.clientX - r.left, sy: ev.clientY - r.top };
+}
+
+cv.addEventListener('mousemove', ev => {
+  const { sx, sy } = getMouse(ev);
+  state.cursorWorld = s2w(sx, sy);
+
+  // Active drag
+  if (state.dragMode === 'wp' && state.dragIndex >= 0) {
+    const wp = state.waypoints[state.dragIndex];
+    state.waypoints[state.dragIndex] = [state.cursorWorld.x, state.cursorWorld.y, wp[2]];
+    emitDebounced();
+    cv.style.cursor = 'grabbing';
+    return;
+  }
+  if (state.dragMode === 'enemy' && state.dragIndex >= 0) {
+    const e = state.enemies[state.dragIndex];
+    e.x = state.cursorWorld.x; e.y = state.cursorWorld.y;
+    // Keep its track origin in sync so the trail re-anchors on next sim run
+    emitDebounced();
+    cv.style.cursor = 'grabbing';
+    return;
+  }
+  if (state.dragMode === 'zone' && state.dragIndex >= 0) {
+    const z = state.zones[state.dragIndex];
+    z.cx = state.cursorWorld.x; z.cy = state.cursorWorld.y;
+    emitDebounced();
+    cv.style.cursor = 'grabbing';
+    return;
+  }
+  if (state.panning && state.panStart) {
+    const dx = sx - state.panStart.sx;
+    const dy = sy - state.panStart.sy;
+    state.view.cx = state.panStart.cx - dx / state.view.zoom;
+    state.view.cy = state.panStart.cy + dy / state.view.zoom;
+    cv.style.cursor = 'move';
+    return;
+  }
+  // Hover priority: waypoints > enemies > zones (waypoints visually smallest)
+  state.hover      = hitTestWaypoint(sx, sy);
+  state.hoverEnemy = state.hover >= 0 ? -1 : hitTestEnemy(sx, sy);
+  state.hoverZone  = (state.hover >= 0 || state.hoverEnemy >= 0) ? -1 : hitTestZone(sx, sy);
+  cv.style.cursor =
+    (state.hover >= 0 || state.hoverEnemy >= 0 || state.hoverZone >= 0)
+      ? 'grab' : 'crosshair';
+});
+
+cv.addEventListener('mousedown', ev => {
+  const { sx, sy } = getMouse(ev);
+  if (ev.button === 0) {
+    // Shift-click on empty space adds a waypoint
+    const wpIdx = hitTestWaypoint(sx, sy);
+    if (ev.shiftKey && wpIdx < 0) {
+      const w = s2w(sx, sy);
+      const z = state.waypoints.length ? state.waypoints[state.waypoints.length - 1][2] : 2.0;
+      state.waypoints.push([w.x, w.y, z]);
+      state.selected = state.waypoints.length - 1;
+      emit();
+      return;
+    }
+    if (wpIdx >= 0) {
+      state.selected  = wpIdx;
+      state.dragMode  = 'wp';
+      state.dragIndex = wpIdx;
+      pausePlayback();
+      return;
+    }
+    const enIdx = hitTestEnemy(sx, sy);
+    if (enIdx >= 0) {
+      state.selected  = -1;
+      state.dragMode  = 'enemy';
+      state.dragIndex = enIdx;
+      pausePlayback();
+      return;
+    }
+    const zoIdx = hitTestZone(sx, sy);
+    if (zoIdx >= 0) {
+      state.selected  = -1;
+      state.dragMode  = 'zone';
+      state.dragIndex = zoIdx;
+      pausePlayback();
+      return;
+    }
+    // Empty space: pan
+    state.selected = -1;
+    state.panning  = true;
+    state.panStart = { sx, sy, cx: state.view.cx, cy: state.view.cy };
+  } else if (ev.button === 2 || ev.button === 1) {
+    state.panning  = true;
+    state.panStart = { sx, sy, cx: state.view.cx, cy: state.view.cy };
+  }
+});
+
+cv.addEventListener('mouseup', () => {
+  if (state.dragMode) {
+    state.dragMode = null;
+    state.dragIndex = -1;
+    cv.style.cursor = 'grab';
+    emit();
+  }
+  state.panning = false;
+});
+
+cv.addEventListener('mouseleave', () => {
+  state.cursorWorld = null;
+  state.dragMode = null;
+  state.dragIndex = -1;
+  state.panning = false;
+});
+
+cv.addEventListener('wheel', ev => {
+  ev.preventDefault();
+  const { sx, sy } = getMouse(ev);
+  const before = s2w(sx, sy);
+  const factor = ev.deltaY < 0 ? 1.15 : 1 / 1.15;
+  state.view.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, state.view.zoom * factor));
+  const after = s2w(sx, sy);
+  state.view.cx += (before.x - after.x);
+  state.view.cy += (before.y - after.y);
+}, { passive: false });
+
+cv.addEventListener('contextmenu', ev => ev.preventDefault());
+
+window.addEventListener('keydown', ev => {
+  if (ev.key === 'Delete' || ev.key === 'Backspace') {
+    if (state.selected >= 0 && state.waypoints.length > 1) {
+      state.waypoints.splice(state.selected, 1);
+      state.selected = -1;
+      emit();
+    }
+  } else if (ev.key === 'Escape') {
+    state.selected = -1;
+  } else if (ev.key === 'f' || ev.key === 'F') {
+    fitView();
+  } else if (ev.key === ' ') {
+    ev.preventDefault();
+    togglePlay();
+  }
+});
+
+/* ====================================================================== */
+/* Toolbar                                                                 */
+/* ====================================================================== */
+document.getElementById('btnFit').onclick = fitView;
+document.getElementById('btnReset').onclick = () => {
+  state.view = { cx: 2.5, cy: 2.5, zoom: 30 };
+  fitView();
+};
+document.getElementById('btnAdd').onclick = () => {
+  const last = state.waypoints[state.waypoints.length - 1] || [0, 0, 2];
+  state.waypoints.push([last[0] + 1, last[1] + 1, last[2]]);
+  state.selected = state.waypoints.length - 1;
+  emit();
+};
+document.getElementById('btnDel').onclick = () => {
+  if (state.selected >= 0 && state.waypoints.length > 1) {
+    state.waypoints.splice(state.selected, 1);
+    state.selected = -1;
+    emit();
+  }
+};
+
+/* ====================================================================== */
+/* Transport (play/pause/scrub) controls                                   */
+/* ====================================================================== */
+const SPEED_CYCLE = [0.5, 1, 2, 4];
+function togglePlay() {
+  const pb = state.playback;
+  if (pb.timeline.length === 0) return;
+  if (pb.playing && pb.playhead >= pb.timeline.length - 1) {
+    pb.playhead = 0;
+  } else if (!pb.playing && pb.playhead >= pb.timeline.length - 1) {
+    pb.playhead = 0;
+  }
+  pb.playing = !pb.playing;
+  pb.lastWall = performance.now();
+}
+function pausePlayback() {
+  state.playback.playing = false;
+}
+function restartPlayback() {
+  state.playback.playhead = 0;
+  state.playback.flashUntilK = -1;
+  state.playback.lastInterceptK = -1;
+}
+function cycleSpeed() {
+  const pb = state.playback;
+  let i = SPEED_CYCLE.indexOf(pb.speed);
+  pb.speed = SPEED_CYCLE[(i + 1) % SPEED_CYCLE.length];
+}
+
+document.getElementById('btnPlay').onclick = togglePlay;
+document.getElementById('btnRwd').onclick  = () => { restartPlayback(); };
+document.getElementById('btnSpd').onclick  = cycleSpeed;
+
+// Click / drag the scrub bar
+const scrubWrap = document.getElementById('scrubWrap');
+let scrubbing = false;
+function scrubTo(ev) {
+  const r = scrubWrap.getBoundingClientRect();
+  const x = Math.max(0, Math.min(r.width, ev.clientX - r.left));
+  const N = state.playback.timeline.length;
+  if (N === 0) return;
+  state.playback.playhead = (x / r.width) * (N - 1);
+  state.playback.flashUntilK = -1;
+  state.playback.lastInterceptK = -1;
+}
+scrubWrap.addEventListener('mousedown', ev => {
+  scrubbing = true;
+  pausePlayback();
+  scrubTo(ev);
+});
+window.addEventListener('mousemove', ev => { if (scrubbing) scrubTo(ev); });
+window.addEventListener('mouseup',   () => { scrubbing = false; });
+
+/* ====================================================================== */
+/* Streamlit emit (structured: waypoints + enemies + zones)                */
+/* ====================================================================== */
+let emitTimer = null;
+function emitDebounced() {
+  if (emitTimer) return;
+  emitTimer = setTimeout(() => {
+    emitTimer = null;
+    emit();
+  }, 60);
+}
+const r3 = v => Math.round(v * 1000) / 1000;
+function emit() {
+  if (emitTimer) { clearTimeout(emitTimer); emitTimer = null; }
+  const payload = {
+    waypoints: state.waypoints.map(p => [r3(p[0]), r3(p[1]), r3(p[2])]),
+    enemies:   state.enemies.map(e => ({
+      name: e.name, x: r3(e.x), y: r3(e.y), z: r3(e.z),
+    })),
+    zones:     state.zones.map(z => ({
+      name: z.name, cx: r3(z.cx), cy: r3(z.cy), radius: r3(z.radius),
+    })),
+  };
+  const ser = JSON.stringify(payload);
+  if (ser === lastSerialized) return;
+  lastSerialized = ser;
+  setComponentValue(payload);
+}
+
+/* ====================================================================== */
+/* Streamlit receive                                                       */
+/* ====================================================================== */
+window.addEventListener('message', event => {
+  const d = event.data;
+  if (!d || d.type !== 'streamlit:render') return;
+  const args = d.args || {};
+  state.waypoints = (args.waypoints || []).map(p => [Number(p[0]), Number(p[1]), Number(p[2])]);
+  state.flown     = (args.flown     || []).map(p => [Number(p[0]), Number(p[1]), Number(p[2] || 0)]);
+  state.zones     = (args.zones     || []).map(z => ({
+    name: String(z.name), cx: Number(z.cx), cy: Number(z.cy),
+    radius: Number(z.radius), z_min: Number(z.z_min), z_max: Number(z.z_max),
+    kind: String(z.kind),
+  }));
+  state.vehicleFinal = args.vehicle ? {
+    x: Number(args.vehicle.x), y: Number(args.vehicle.y),
+    z: Number(args.vehicle.z), yaw: Number(args.vehicle.yaw || 0),
+  } : null;
+  state.enemies = (args.enemies || []).map(e => ({
+    name:     String(e.name || ''),
+    behavior: String(e.behavior || ''),
+    x:        Number(e.x), y: Number(e.y), z: Number(e.z || 0),
+    heading:  Number(e.heading || 0),
+    det_r:    Number(e.det_r || 0),
+    leth_r:   Number(e.leth_r || 0),
+    track:    Array.isArray(e.track)
+                ? e.track.map(p => [Number(p[0]), Number(p[1]),
+                                     p.length > 2 ? Number(p[2]) : 0])
+                : [],
+  }));
+  // Playback timeline + per-step vehicle pose
+  state.playback.timeline = (args.timeline || []).map(Number);
+  state.playback.vehicleTrack = (args.vehicle_track || []).map(p => ({
+    x: Number(p.x), y: Number(p.y), z: Number(p.z), yaw: Number(p.yaw || 0),
+  }));
+  // Reset playhead to end on each fresh render so static view = final state.
+  state.playback.playhead = Math.max(0, state.playback.timeline.length - 1);
+  state.playback.playing  = false;
+  state.playback.flashUntilK = -1;
+  state.playback.lastInterceptK = -1;
+
+  if (!initialized) {
+    initialized = true;
+    initialWaypoints = JSON.parse(JSON.stringify(state.waypoints));
+    fitView();
+  }
+  // Refresh serialized snapshot for emit gating
+  lastSerialized = JSON.stringify({
+    waypoints: state.waypoints.map(p => [r3(p[0]), r3(p[1]), r3(p[2])]),
+    enemies:   state.enemies.map(e => ({ name: e.name, x: r3(e.x), y: r3(e.y), z: r3(e.z) })),
+    zones:     state.zones.map(z => ({ name: z.name, cx: r3(z.cx), cy: r3(z.cy), radius: r3(z.radius) })),
+  });
+});
+
+/* ====================================================================== */
+/* Boot                                                                    */
+/* ====================================================================== */
+resize();
+send('streamlit:componentReady', { apiVersion: 1 });
+setFrameHeight(580);
+frame();
+</script>
+</body>
+</html>

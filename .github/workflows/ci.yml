@@ -1,0 +1,63 @@
+# Continuous integration for the Flight_sim portfolio project.
+#
+# Two parallel jobs:
+#   * backend  — Python unit tests (numpy / scipy / EKF / threat planner).
+#   * web      — TypeScript typecheck of the Next.js dashboard.
+#
+# Both run on push to main and on every pull request. The README links the
+# resulting badge so reviewers can see at a glance that the suite is green.
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch: {}
+
+jobs:
+  backend:
+    name: Python tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install minimal test deps
+        # The full requirements.txt pulls in Streamlit / PySide6 / PyOpenGL
+        # which are not needed to exercise the simulator core. Installing
+        # only what the tests touch keeps CI under a minute.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "numpy>=1.26" "scipy>=1.11"
+
+      - name: Run test suite
+        run: python -m unittest discover tests -v
+
+  web:
+    name: Web typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript typecheck
+        run: npm run typecheck

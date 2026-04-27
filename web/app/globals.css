@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body {
+    @apply bg-bg text-text;
+    background-image:
+      radial-gradient(ellipse at top, rgba(0, 212, 255, 0.06) 0%, transparent 50%),
+      radial-gradient(ellipse at bottom, rgba(255, 64, 129, 0.04) 0%, transparent 60%);
+    background-attachment: fixed;
+  }
+  body {
+    font-family: theme('fontFamily.sans');
+    -webkit-font-smoothing: antialiased;
+  }
+  ::-webkit-scrollbar {
+    width: 8px; height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(0, 212, 255, 0.18);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 212, 255, 0.32);
+  }
+}
+
+@layer components {
+  .panel {
+    @apply bg-panel border border-cyan/15 rounded-lg shadow-card;
+  }
+  .panel-soft {
+    @apply bg-panel-2 border border-cyan/10 rounded-lg;
+  }
+  .pill {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 text-[0.68rem]
+           font-semibold tracking-wider uppercase rounded-full;
+  }
+  .pill-cyan   { @apply pill bg-cyan/15 text-cyan; }
+  .pill-amber  { @apply pill bg-amber/15 text-amber; }
+  .pill-green  { @apply pill bg-green/15 text-green; }
+  .pill-red    { @apply pill bg-red/15 text-red; }
+  .pill-violet { @apply pill bg-violet/15 text-violet; }
+  .field {
+    @apply h-8 w-full rounded-md border border-cyan/15 bg-bg/60 px-2 text-sm
+           text-text outline-none transition-colors;
+  }
+  .field:focus {
+    @apply border-cyan/45 bg-bg;
+  }
+  .icon-map-button {
+    @apply grid h-8 w-8 place-items-center rounded-md border border-cyan/20
+           bg-bg/60 text-cyan transition-colors;
+  }
+  .icon-map-button:hover {
+    @apply border-cyan/40 bg-cyan/10;
+  }
+  .icon-map-button:disabled {
+    @apply cursor-not-allowed opacity-40;
+  }
+}

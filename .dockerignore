@@ -1,0 +1,32 @@
+# Keeps the build context lean — without this, every `docker build` would
+# upload the venv, frontend node_modules, and Streamlit run-output dirs.
+.venv/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+
+# Frontend
+web/node_modules/
+web/.next/
+web/out/
+
+# Streamlit + local artefacts
+results/
+desktop/
+*.log
+*.pid
+
+# Repo metadata
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor + temp
+*.swp
+*.tmp
