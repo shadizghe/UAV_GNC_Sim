@@ -30,10 +30,11 @@ docker compose up -d        # → dashboard at http://localhost:3005
 
 ## Demo video
 
-[**▶ Watch the 90-second walkthrough**](https://www.youtube.com/watch?v=YOUR_VIDEO_ID)
-— closed-loop run, GPS-denial dead-reckoning with the EKF ellipsoid
-ballooning, threat-aware reroute around live bandits, and a Monte Carlo
-dispersion sweep, all in under two minutes.
+[![Watch the demo on YouTube](https://img.youtube.com/vi/qzPBkQ8bm1w/maxresdefault.jpg)](https://youtu.be/qzPBkQ8bm1w)
+
+[**▶ Watch on YouTube**](https://youtu.be/qzPBkQ8bm1w) — closed-loop run,
+GPS-denial dead-reckoning with the EKF ellipsoid ballooning, threat-aware
+reroute around live bandits, and a Monte Carlo dispersion sweep.
 
 ## Dashboard tour
 
