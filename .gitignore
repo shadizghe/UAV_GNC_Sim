@@ -30,3 +30,11 @@ Thumbs.db
 *.tmp
 *.log
 *.pid
+
+# --- Heavy media (host video on YouTube / Vimeo / Releases instead) --
+# GitHub rejects pushes >100 MB per file. Demo videos belong on a video
+# host or under a GitHub Release; only the link should live in-repo.
+*.mp4
+*.mov
+*.webm
+*.mkv

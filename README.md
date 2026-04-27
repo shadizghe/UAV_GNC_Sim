@@ -11,7 +11,7 @@
 > validation, Monte Carlo dispersion, and a live React + Three.js dashboard
 > rendering the EKF's 3σ position-uncertainty ellipsoid in real time.
 
-![Dashboard](docs/img/dashboard-landing.png)
+![Dashboard hero — live 3D mission scene](docs/img/3D.png)
 
 | Metric                      | Value           | Notes                                       |
 |-----------------------------|-----------------|---------------------------------------------|
@@ -25,6 +25,30 @@
 docker compose up -d        # → dashboard at http://localhost:3005
                             # → API + Swagger at http://localhost:8000/docs
 ```
+
+---
+
+## Demo video
+
+[**▶ Watch the 90-second walkthrough**](https://www.youtube.com/watch?v=YOUR_VIDEO_ID)
+— closed-loop run, GPS-denial dead-reckoning with the EKF ellipsoid
+ballooning, threat-aware reroute around live bandits, and a Monte Carlo
+dispersion sweep, all in under two minutes.
+
+## Dashboard tour
+
+Four workspaces over the same live 3D scene — same FastAPI backend
+under the hood, switched via the right-side tab strip.
+
+| Tactical Map | Autonomy + Replanner |
+|---|---|
+| ![Tactical map](docs/img/tac.png) | ![Autonomy panel](docs/img/auto.png) |
+| Top-down threat picture: bandits, lethal + detection rings, no-fly zones, and ownship track. Shows the closed-loop awareness layer the planner consumes. | Live A\* threat-aware replanning. The contact log streams every reroute event with cost, inserted waypoints, and the bandit that triggered it. |
+
+| Fault Injection | Monte Carlo |
+|---|---|
+| ![Fault injection](docs/img/faults.png) | ![Monte Carlo panel](docs/img/panel-monte-carlo.png) |
+| Inject motor failures, IMU dropouts, and GPS-denied windows mid-mission. The rotor-telemetry strip shows commanded vs. delivered thrust so you can see the fault land. | Streaming dispersion sweep — wind / mass / sensor-bias jitter — with per-run trajectory cloud, endpoint scatter, success rate, and CEP per waypoint. |
 
 ---
 
