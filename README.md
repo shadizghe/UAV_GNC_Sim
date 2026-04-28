@@ -456,45 +456,9 @@ only, then snap back when GPS returns.
 
 ---
 
-## 11. Recording a 90-second demo video
 
-Below is the script behind the dashboard demo on LinkedIn / portfolio
-landing pages. It hits the four highest-signal moments in this project
-in roughly that order: live 3D scene → EKF works → EKF stays consistent
-under stress → Monte Carlo dispersion.
 
-```text
-0:00–0:10  Cold open. `docker compose up -d`, browser tab opens to
-           localhost:3005. Pan/orbit the 3D scene to show terrain,
-           waypoints, threat zones, drone.
-
-0:10–0:30  Open the mission-plan panel. Add or drag a waypoint to
-           show interactive editing. Hit Run. Drone flies, contrail
-           draws, the 3σ EKF ellipsoid follows it (small, tight cyan).
-
-0:30–0:55  Open the fault-injection panel. Add a GPS denial window
-           in the middle of the mission. Re-run. As the denial begins,
-           cut to a close camera shot and let the ellipsoid balloon
-           red while the drone keeps flying on IMU dead-reckoning.
-           When GPS returns, the ellipsoid snaps back.
-
-0:55–1:15  Cut to the EKF residual + NEES/NIS plots in the analysis
-           tab. Voice-over: "filter is statistically consistent —
-           NIS = 3.0, dead on the theoretical mean for a 3-DoF GPS
-           innovation; that's the standard textbook tuning check."
-
-1:15–1:30  Cut to Monte Carlo panel. Run 50–100 dispersion samples.
-           Trajectory cloud + endpoint scatter + CEP rings appear.
-           Close on the success-rate / CEP50 / CEP95 numbers.
-```
-
-Capture with the OS's built-in screen recorder (Win+G on Windows;
-QuickTime → File → New Screen Recording on macOS) at 30 fps, 1080p,
-trim to 60–90 s in any editor, and post.
-
----
-
-## 12. Possible Extensions
+## 11. Possible Extensions
 
 - Linearize about hover and add an LQR inner-loop controller.
 - Tightly-coupled GNSS pseudorange measurements instead of position fixes.
